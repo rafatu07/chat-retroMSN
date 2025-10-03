@@ -1,0 +1,66 @@
+# Dependências
+node_modules/
+.pnp
+.pnp.js
+
+# Arquivos de teste
+coverage/
+
+# Produção
+dist/
+dist-ssr/
+build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Cache do editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Vite
+*.local
+
+# Hot Module Replacement
+*.hot-update.js
+*.hot-update.json
+
+# Arquivos de sistema
+Thumbs.db
+.DS_Store
+
+# Lock files (opcional - mantenha apenas um)
+# Descomente a linha abaixo se quiser ignorar npm/yarn
+# package-lock.json
+# yarn.lock
+
+# Supabase local (se usar Supabase CLI local)
+.supabase/
+
+# TypeScript
+*.tsbuildinfo
+
+# Arquivos temporários
+*.tmp
+*.temp
+.cache/
+
+# Build do Vercel
+.vercel
+
+# Arquivos de debug
+debug.log
+

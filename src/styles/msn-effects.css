@@ -1,0 +1,172 @@
+/* Efeitos visuais nostálgicos do MSN */
+
+@keyframes msn-shake {
+  0%, 100% { transform: translateX(0); }
+  10% { transform: translateX(-10px) rotate(-1deg); }
+  20% { transform: translateX(10px) rotate(1deg); }
+  30% { transform: translateX(-8px) rotate(-1deg); }
+  40% { transform: translateX(8px) rotate(1deg); }
+  50% { transform: translateX(-6px) rotate(-0.5deg); }
+  60% { transform: translateX(6px) rotate(0.5deg); }
+  70% { transform: translateX(-4px) rotate(-0.5deg); }
+  80% { transform: translateX(4px) rotate(0.5deg); }
+  90% { transform: translateX(-2px); }
+}
+
+@keyframes msn-attention-pulse {
+  0% { 
+    transform: scale(1); 
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.7);
+  }
+  50% { 
+    transform: scale(1.05); 
+    box-shadow: 0 0 0 10px rgba(251, 191, 36, 0.3);
+  }
+  100% { 
+    transform: scale(1); 
+    box-shadow: 0 0 0 20px rgba(251, 191, 36, 0);
+  }
+}
+
+@keyframes msn-bounce-in {
+  0% {
+    transform: scale(0.3) rotate(-10deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.1) rotate(5deg);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes msn-slide-in {
+  0% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes msn-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(59, 130, 246, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.8);
+  }
+}
+
+/* Classes utilitárias */
+.msn-shake {
+  animation: msn-shake 0.5s ease-in-out infinite;
+}
+
+.msn-attention-pulse {
+  animation: msn-attention-pulse 1s ease-in-out infinite;
+}
+
+.msn-bounce-in {
+  animation: msn-bounce-in 0.6s ease-out;
+}
+
+.msn-slide-in {
+  animation: msn-slide-in 0.3s ease-out;
+}
+
+.msn-glow {
+  animation: msn-glow 2s ease-in-out infinite;
+}
+
+/* Efeito de digitação */
+.typing-indicator {
+  display: inline-block;
+}
+
+.typing-indicator span {
+  display: inline-block;
+  animation: typing-dots 1.4s infinite;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typing-dots {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-10px);
+    opacity: 1;
+  }
+}
+
+/* Efeito de mensagem nova */
+.new-message {
+  animation: msn-slide-in 0.3s ease-out;
+}
+
+/* Efeito hover para contatos */
+.contact-item:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
+  transform: translateX(5px);
+  transition: all 0.2s ease;
+}
+
+/* Efeito de status online */
+.status-online {
+  position: relative;
+}
+
+.status-online::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  background: #10b981;
+  border-radius: 50%;
+  animation: msn-glow 2s ease-in-out infinite;
+}
+
+/* Gradiente nostálgico do MSN */
+.msn-gradient {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.msn-gradient-blue {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.msn-gradient-purple {
+  background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+}
+
+/* Badge de notificação sempre visível */
+.notification-badge-container {
+  overflow: visible !important;
+  position: relative;
+  z-index: 200 !important;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  z-index: 9999 !important;
+  pointer-events: none;
+  transform: scale(1);
+}
