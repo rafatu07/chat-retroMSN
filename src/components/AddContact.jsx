@@ -15,7 +15,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { UserPlus, Mail, Search, Loader2 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { UserPlus, Mail, Search, Loader2, Check, Clock, Circle } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export const AddContact = ({ onContactAdded }) => {
@@ -40,15 +42,17 @@ export const AddContact = ({ onContactAdded }) => {
       // Buscar usuários
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, display_name, email, status')
+        .select('id, display_name, email, status, avatar_url, updated_at')
         .or(`display_name.ilike.%${query}%,email.ilike.%${query}%`)
         .neq('id', user.id)
-        .limit(10)
+        .limit(50)
 
       console.log('📦 Resultado da busca:', { data, error })
+      console.log('📊 Total de usuários encontrados:', data?.length || 0)
 
       if (error) {
         console.error('❌ Erro na busca:', error)
+        toast.error('Erro ao buscar: ' + error.message)
         throw error
       }
 
@@ -64,7 +68,7 @@ export const AddContact = ({ onContactAdded }) => {
 
       console.log(`✅ ${data.length} usuário(s) encontrado(s)`)
 
-      // Filtrar usuários que já são contatos ACEITOS
+      // Buscar contatos existentes (aceitos ou pendentes)
       const { data: existingContacts, error: contactsError } = await supabase
         .from('contacts')
         .select('contact_id, status')
@@ -76,26 +80,25 @@ export const AddContact = ({ onContactAdded }) => {
 
       console.log('📋 Contatos existentes:', existingContacts)
 
-      // Filtrar apenas contatos ACEITOS (não bloquear pending ou rejected)
-      const acceptedContactIds = existingContacts
-        ?.filter(c => c.status === 'accepted')
-        ?.map(c => c.contact_id) || []
+      // Criar mapa de status dos contatos
+      const contactStatusMap = {}
+      existingContacts?.forEach(c => {
+        contactStatusMap[c.contact_id] = c.status
+      })
       
-      console.log('✅ Contatos aceitos:', acceptedContactIds)
+      console.log('📊 Mapa de status:', contactStatusMap)
 
-      const filteredResults = data?.filter(u => !acceptedContactIds.includes(u.id)) || []
+      // Adicionar informação de status a cada usuário encontrado
+      const resultsWithStatus = data.map(u => ({
+        ...u,
+        contactStatus: contactStatusMap[u.id] || null,
+        isAlreadyContact: !!contactStatusMap[u.id]
+      }))
 
-      console.log(`✅ ${filteredResults.length} usuário(s) disponível(is) para adicionar`)
-      console.log('📊 Resultados filtrados:', filteredResults)
+      console.log(`✅ ${resultsWithStatus.length} usuário(s) encontrado(s) com status`)
+      console.log('📊 Resultados com status:', resultsWithStatus)
 
-      setSearchResults(filteredResults)
-
-      if (filteredResults.length === 0 && data.length > 0) {
-        console.log('⚠️ Usuários encontrados mas todos já são contatos aceitos')
-        toast('Todos os usuários encontrados já são seus contatos', {
-          icon: '👥',
-        })
-      }
+      setSearchResults(resultsWithStatus)
     } catch (error) {
       console.error('❌ Erro fatal ao buscar usuários:', error)
       toast.error('Erro ao buscar usuários: ' + error.message)
@@ -250,23 +253,80 @@ export const AddContact = ({ onContactAdded }) => {
                 </Alert>
               )}
 
-              {searchResults.map((user) => (
-                <Card key={user.id} className="p-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-medium">{user.display_name}</h4>
-                      <p className="text-sm text-muted-foreground">{user.email}</p>
+              {searchResults.map((user) => {
+                const getInitials = (name) => {
+                  if (!name) return '?'
+                  return name
+                    .split(' ')
+                    .map(n => n[0])
+                    .join('')
+                    .toUpperCase()
+                    .slice(0, 2)
+                }
+                
+                const statusConfig = {
+                  online: { color: 'bg-green-500', label: 'Online' },
+                  away: { color: 'bg-yellow-500', label: 'Ausente' },
+                  busy: { color: 'bg-red-500', label: 'Ocupado' },
+                  offline: { color: 'bg-gray-500', label: 'Offline' }
+                }
+                
+                return (
+                  <Card key={user.id} className="p-3">
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage src={user.avatar_url} />
+                          <AvatarFallback className="bg-gradient-to-br from-purple-500 to-pink-500 text-white">
+                            {getInitials(user.display_name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <Circle 
+                          className={`absolute -bottom-1 -right-1 h-3 w-3 ${statusConfig[user.status]?.color || 'bg-gray-500'} border-2 border-white rounded-full`} 
+                          fill="currentColor"
+                        />
+                      </div>
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-medium truncate">{user.display_name || 'Usuário'}</h4>
+                          {user.contactStatus === 'accepted' && (
+                            <Badge variant="secondary" className="gap-1">
+                              <Check className="h-3 w-3" />
+                              Adicionado
+                            </Badge>
+                          )}
+                          {user.contactStatus === 'pending' && (
+                            <Badge variant="outline" className="gap-1">
+                              <Clock className="h-3 w-3" />
+                              Pendente
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+                      </div>
+                      
+                      {!user.isAlreadyContact ? (
+                        <Button 
+                          size="sm" 
+                          onClick={() => addContact(user.id)}
+                          disabled={loading}
+                        >
+                          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                        </Button>
+                      ) : (
+                        <Button 
+                          size="sm" 
+                          variant="secondary"
+                          disabled
+                        >
+                          <Check className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
-                    <Button 
-                      size="sm" 
-                      onClick={() => addContact(user.id)}
-                      disabled={loading}
-                    >
-                      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </Card>
-              ))}
+                  </Card>
+                )
+              })}
             </div>
           </TabsContent>
 
