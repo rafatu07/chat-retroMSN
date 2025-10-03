@@ -52,32 +52,32 @@ export const ChatWindow = ({ contact }) => {
   }, [messages])
 
   useEffect(() => {
-    if (!conversation) {
-      console.log('⚠️ Sem conversa, não iniciando Realtime')
-      return
-    }
+    if (!conversation) return
 
     console.log('🔌 Configurando Realtime para conversa:', conversation.id)
     
     let channel = null
     let reconnectAttempts = 0
-    const MAX_RECONNECT_ATTEMPTS = 5
+    let isUnmounting = false
+    const MAX_RECONNECT_ATTEMPTS = 3
     let reconnectTimeout = null
 
     const setupChannel = () => {
-      // Remover canal anterior se existir
+      // Não configurar se estamos desmontando
+      if (isUnmounting) return
+
+      // Limpar canal anterior sem disparar reconexão
       if (channel) {
-        supabase.removeChannel(channel)
+        try {
+          supabase.removeChannel(channel)
+        } catch (e) {
+          // Ignorar erros ao remover canal
+        }
       }
 
       // Configurar realtime para mensagens
       channel = supabase
-        .channel(`messages:${conversation.id}`, {
-          config: {
-            broadcast: { self: false },
-            presence: { key: user.id }
-          }
-        })
+        .channel(`messages:${conversation.id}`)
         .on(
           'postgres_changes',
           {
@@ -87,97 +87,81 @@ export const ChatWindow = ({ contact }) => {
             filter: `conversation_id=eq.${conversation.id}`
           },
           (payload) => {
-            console.log('📨 NOVA MENSAGEM RECEBIDA (Realtime):', payload)
-            const newMessage = payload.new
+            if (isUnmounting) return
             
-            console.log('👤 Sender:', newMessage.sender_id)
-            console.log('👤 Eu:', user.id)
-            console.log('📝 Conteúdo:', newMessage.content)
+            const newMessage = payload.new
+            console.log('📨 Nova mensagem recebida')
             
             // Se a mensagem é de "chamar atenção", fazer a tela tremer
             if (newMessage.message_type === 'attention' && newMessage.sender_id !== user.id) {
-              console.log('⚡ Atenção recebida!')
               triggerAttentionEffect()
             } else if (newMessage.sender_id !== user.id) {
-              console.log('🔔 Mensagem de outro usuário, tocando som')
-              // Tocar som para mensagens normais de outros usuários
               playMessageSound()
             }
             
             // Adicionar mensagem à lista
-            console.log('➕ Adicionando mensagem à lista')
-            setMessages(prev => {
-              const updated = [...prev, {
-                ...newMessage,
-                sender: newMessage.sender_id === user.id ? profile : contact
-              }]
-              console.log('📋 Total de mensagens agora:', updated.length)
-              return updated
-            })
+            setMessages(prev => [...prev, {
+              ...newMessage,
+              sender: newMessage.sender_id === user.id ? profile : contact
+            }])
           }
         )
         .subscribe((status) => {
-          console.log('🔌 Status da subscrição Realtime:', status)
+          if (isUnmounting) return
+
           if (status === 'SUBSCRIBED') {
-            console.log('✅ Realtime conectado e escutando mensagens!')
-            reconnectAttempts = 0 // Reset counter on successful connection
-          } else if (status === 'CHANNEL_ERROR') {
-            console.error('❌ Erro no canal Realtime')
-            attemptReconnect()
-          } else if (status === 'TIMED_OUT') {
-            console.error('⏰ Timeout na conexão Realtime')
-            attemptReconnect()
-          } else if (status === 'CLOSED') {
-            console.warn('🔒 Canal Realtime fechado')
+            console.log('✅ Realtime conectado')
+            reconnectAttempts = 0
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.error('❌ Erro na conexão Realtime')
             attemptReconnect()
           }
+          // NÃO reconectar em CLOSED - pode ser intencional
         })
     }
 
     const attemptReconnect = () => {
+      if (isUnmounting || !conversation) return
+
       if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         console.error('❌ Máximo de tentativas de reconexão atingido')
-        toast.error('Erro ao manter conexão. Tente recarregar a página.')
+        toast.error('Erro de conexão. Recarregue a página.')
         return
       }
 
       reconnectAttempts++
-      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000) // Exponential backoff, max 30s
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000)
       
-      console.log(`🔄 Tentativa de reconexão ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} em ${delay}ms`)
+      console.log(`🔄 Reconexão ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} em ${delay}ms`)
+      
+      if (reconnectTimeout) clearTimeout(reconnectTimeout)
       
       reconnectTimeout = setTimeout(() => {
-        console.log('🔄 Reconectando Realtime...')
-        setupChannel()
+        if (!isUnmounting && conversation) {
+          setupChannel()
+        }
       }, delay)
     }
-
-    // Configurar keep-alive ping a cada 25 segundos
-    const keepAliveInterval = setInterval(() => {
-      if (channel) {
-        console.log('🏓 Ping keep-alive')
-        // Enviar um ping para manter o canal ativo
-        channel.send({
-          type: 'broadcast',
-          event: 'ping',
-          payload: { timestamp: Date.now() }
-        })
-      }
-    }, 25000)
 
     setupChannel()
 
     return () => {
-      console.log('🔌 Desconectando Realtime para conversa:', conversation.id)
+      console.log('🔌 Limpando Realtime')
+      isUnmounting = true
+      
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout)
       }
-      clearInterval(keepAliveInterval)
+      
       if (channel) {
-        supabase.removeChannel(channel)
+        try {
+          supabase.removeChannel(channel)
+        } catch (e) {
+          // Ignorar erros ao limpar
+        }
       }
     }
-  }, [conversation, user, profile, contact])
+  }, [conversation?.id])
 
   const initializeChat = async () => {
     setLoading(true)

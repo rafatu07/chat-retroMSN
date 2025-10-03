@@ -44,7 +44,12 @@ export const ChatApp = () => {
   const [selectedContact, setSelectedContact] = useState(null)
   const [loading, setLoading] = useState(true)
   const { isConnected } = useOnlineStatus()
-  const { getUnreadCount, markAsRead } = useUnreadMessages()
+  const { getUnreadCount, markAsRead, unreadCounts } = useUnreadMessages()
+  
+  // Log para debug - ver quando unreadCounts muda
+  useEffect(() => {
+    console.log('🔔 CHATAPP: unreadCounts mudou!', unreadCounts)
+  }, [unreadCounts])
 
   useEffect(() => {
     if (profile) {

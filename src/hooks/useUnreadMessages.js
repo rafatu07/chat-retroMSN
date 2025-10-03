@@ -26,28 +26,76 @@ export const useUnreadMessages = () => {
           table: 'messages',
         },
         async (payload) => {
-          console.log('📨 Nova mensagem detectada:', payload)
+          console.log('📨 Nova mensagem detectada!')
           const message = payload.new
+          
+          console.log('📊 Detalhes da mensagem:', {
+            sender_id: message.sender_id,
+            meu_id: user.id,
+            conversation_id: message.conversation_id,
+            eh_minha: message.sender_id === user.id
+          })
           
           // Se a mensagem não é minha, incrementar contador
           if (message.sender_id !== user.id) {
-            // Buscar a conversa para determinar o outro participante
-            const { data: conversation } = await supabase
-              .from('conversations')
-              .select('user1_id, user2_id')
-              .eq('id', message.conversation_id)
-              .single()
+            console.log('✅ Mensagem de outro usuário! Incrementando contador...')
+            
+            try {
+              // Buscar a conversa para determinar o outro participante
+              const { data: conversation, error: convError } = await supabase
+                .from('conversations')
+                .select('participant1_id, participant2_id')
+                .eq('id', message.conversation_id)
+                .single()
 
-            if (conversation) {
-              const otherUserId = conversation.user1_id === user.id 
-                ? conversation.user2_id 
-                : conversation.user1_id
-              
-              setUnreadCounts(prev => ({
-                ...prev,
-                [otherUserId]: (prev[otherUserId] || 0) + 1
-              }))
+              if (convError) {
+                console.error('❌ Erro ao buscar conversa:', convError)
+                console.log('💡 Usando sender_id diretamente:', message.sender_id)
+                
+                setUnreadCounts(prev => {
+                  const newCount = (prev[message.sender_id] || 0) + 1
+                  const newState = { ...prev, [message.sender_id]: newCount }
+                  console.log('📊 ESTADO ATUALIZADO (fallback):', newState)
+                  return newState
+                })
+                return
+              }
+
+              if (conversation) {
+                const otherUserId = conversation.participant1_id === user.id 
+                  ? conversation.participant2_id 
+                  : conversation.participant1_id
+                
+                console.log('✅ Incrementando contador para usuário:', otherUserId)
+                
+                setUnreadCounts(prev => {
+                  const newCount = (prev[otherUserId] || 0) + 1
+                  const newState = { ...prev, [otherUserId]: newCount }
+                  console.log('📊 ESTADO ANTERIOR:', prev)
+                  console.log('📊 ESTADO NOVO:', newState)
+                  console.log('🔔 Novo contador para', otherUserId, ':', newCount)
+                  return newState
+                })
+              } else {
+                console.warn('⚠️ Conversa não encontrada, usando sender_id')
+                setUnreadCounts(prev => {
+                  const newCount = (prev[message.sender_id] || 0) + 1
+                  const newState = { ...prev, [message.sender_id]: newCount }
+                  console.log('📊 ESTADO ATUALIZADO (no conv):', newState)
+                  return newState
+                })
+              }
+            } catch (error) {
+              console.error('❌ Erro ao processar mensagem não lida:', error)
+              setUnreadCounts(prev => {
+                const newCount = (prev[message.sender_id] || 0) + 1
+                const newState = { ...prev, [message.sender_id]: newCount }
+                console.log('📊 ESTADO ATUALIZADO (error):', newState)
+                return newState
+              })
             }
+          } else {
+            console.log('⏭️ É minha própria mensagem, ignorando')
           }
         }
       )
@@ -70,8 +118,8 @@ export const useUnreadMessages = () => {
       // Buscar todas as conversas do usuário
       const { data: conversations, error: convError } = await supabase
         .from('conversations')
-        .select('id, user1_id, user2_id')
-        .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
+        .select('id, participant1_id, participant2_id')
+        .or(`participant1_id.eq.${user.id},participant2_id.eq.${user.id}`)
 
       if (convError) {
         console.error('❌ Erro ao buscar conversas:', convError)
@@ -84,29 +132,57 @@ export const useUnreadMessages = () => {
       const counts = {}
       
       for (const conv of conversations) {
-        const otherUserId = conv.user1_id === user.id ? conv.user2_id : conv.user1_id
+        const otherUserId = conv.participant1_id === user.id ? conv.participant2_id : conv.participant1_id
         
-        // Contar mensagens do outro usuário que ainda não li
-        // Por enquanto, vamos considerar todas as mensagens do outro usuário como não lidas
-        // Em uma implementação mais completa, você adicionaria um campo 'read' na tabela messages
+        // Contar apenas mensagens do outro usuário que ainda não foram lidas (read_at IS NULL)
         const { count, error } = await supabase
           .from('messages')
           .select('*', { count: 'exact', head: true })
           .eq('conversation_id', conv.id)
           .eq('sender_id', otherUserId)
+          .is('read_at', null) // Apenas mensagens não lidas
 
         if (!error && count > 0) {
           counts[otherUserId] = count
         }
       }
 
+      console.log('📊 Contadores de mensagens não lidas:', counts)
       setUnreadCounts(counts)
     } catch (error) {
       console.error('❌ Erro ao buscar contagens de mensagens não lidas:', error)
     }
   }
 
-  const markAsRead = (contactId) => {
+  const markAsRead = async (contactId) => {
+    try {
+      // Buscar a conversa entre os dois usuários
+      const { data: conversation } = await supabase
+        .from('conversations')
+        .select('id')
+        .or(`and(participant1_id.eq.${user.id},participant2_id.eq.${contactId}),and(participant1_id.eq.${contactId},participant2_id.eq.${user.id})`)
+        .single()
+
+      if (conversation) {
+        // Marcar todas as mensagens do contato nesta conversa como lidas
+        const { error } = await supabase
+          .from('messages')
+          .update({ read_at: new Date().toISOString() })
+          .eq('conversation_id', conversation.id)
+          .eq('sender_id', contactId)
+          .is('read_at', null)
+
+        if (error) {
+          console.error('❌ Erro ao marcar mensagens como lidas:', error)
+        } else {
+          console.log('✅ Mensagens marcadas como lidas no banco')
+        }
+      }
+    } catch (error) {
+      console.error('❌ Erro ao processar markAsRead:', error)
+    }
+
+    // Atualizar estado local
     setUnreadCounts(prev => ({
       ...prev,
       [contactId]: 0
