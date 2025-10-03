@@ -59,6 +59,7 @@ export const ChatWindow = ({ contact }) => {
     let channel = null
     let reconnectAttempts = 0
     let isUnmounting = false
+    let isConnected = false
     let lastMessageTime = Date.now()
     const MAX_RECONNECT_ATTEMPTS = 5
     let reconnectTimeout = null
@@ -122,18 +123,22 @@ export const ChatWindow = ({ contact }) => {
 
           if (status === 'SUBSCRIBED') {
             console.log('✅ Realtime CONECTADO e OUVINDO')
+            isConnected = true
             reconnectAttempts = 0
             startHeartbeat()
           } else if (status === 'CHANNEL_ERROR') {
             console.error('❌ ERRO no canal Realtime')
+            isConnected = false
             stopHeartbeat()
             attemptReconnect()
           } else if (status === 'TIMED_OUT') {
             console.error('⏰ TIMEOUT na conexão Realtime')
+            isConnected = false
             stopHeartbeat()
             attemptReconnect()
           } else if (status === 'CLOSED') {
             console.warn('🔒 Canal Realtime FECHADO')
+            isConnected = false
             stopHeartbeat()
             // Reconectar após CLOSED também (pode ser inatividade)
             if (!isUnmounting) {
@@ -211,8 +216,14 @@ export const ChatWindow = ({ contact }) => {
     // Listener para quando a aba volta a ficar visível
     const handleVisibilityChange = () => {
       if (!document.hidden && !isUnmounting && conversation) {
-        console.log('👁️ Aba ficou visível, reconectando...')
-        setupChannel()
+        console.log('👁️ Aba ficou visível')
+        // Só reconectar se não estiver conectado
+        if (!isConnected) {
+          console.log('🔄 Conexão perdida, reconectando...')
+          setupChannel()
+        } else {
+          console.log('✅ Já está conectado, mantendo canal ativo')
+        }
       }
     }
 
