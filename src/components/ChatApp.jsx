@@ -38,6 +38,20 @@ const statusConfig = {
   offline: { color: 'bg-gray-500', label: 'Offline', icon: Circle }
 }
 
+// Função para verificar se um usuário está realmente online
+// Considera online se a última atualização foi há menos de 60 segundos
+const isUserReallyOnline = (status, updatedAt) => {
+  if (status === 'offline') return false
+  if (!updatedAt) return false
+  
+  const lastUpdate = new Date(updatedAt).getTime()
+  const now = Date.now()
+  const diffInSeconds = (now - lastUpdate) / 1000
+  
+  // Se passou mais de 60 segundos sem atualização, considerar offline
+  return diffInSeconds < 60
+}
+
 export const ChatApp = () => {
   const { user, profile, signOut, updateStatus } = useAuth()
   const [contacts, setContacts] = useState([])
@@ -120,10 +134,10 @@ export const ChatApp = () => {
         return
       }
 
-      // Buscar perfis de todos os contatos
+      // Buscar perfis de todos os contatos (incluindo updated_at para verificar atividade)
       const { data: profilesData, error: error3 } = await supabase
         .from('profiles')
-        .select('id, display_name, avatar_url, status, status_message')
+        .select('id, display_name, avatar_url, status, status_message, updated_at')
         .in('id', allContactIds)
 
       if (error3) {
@@ -282,7 +296,17 @@ export const ChatApp = () => {
                 contacts.map((contact) => {
                   const contactData = contact.contact
                   // Usar status do Realtime se disponível, senão usar do banco
-                  const currentStatus = profileStatuses[contactData.id]?.status || contactData.status
+                  const realtimeStatus = profileStatuses[contactData.id]
+                  const dbStatus = contactData.status
+                  const updatedAt = realtimeStatus?.updated_at || contactData.updated_at
+                  
+                  // Verificar se o usuário está realmente ativo
+                  let currentStatus = realtimeStatus?.status || dbStatus
+                  if (!isUserReallyOnline(currentStatus, updatedAt)) {
+                    currentStatus = 'offline'
+                    console.log(`⚠️ ${contactData.display_name} marcado como offline por inatividade`)
+                  }
+                  
                   const ContactStatusIcon = statusConfig[currentStatus]?.icon || Circle
                   const unreadCount = getUnreadCount(contactData.id)
                   const hasUnread = unreadCount > 0

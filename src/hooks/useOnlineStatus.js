@@ -70,8 +70,11 @@ export const useOnlineStatus = () => {
             setIsConnected(false)
             scheduleReconnect()
           }
+        } else if (profile?.status === 'offline') {
+          // Se estiver offline, parar o heartbeat
+          console.log('⏸️ Status offline, pausando heartbeat')
         }
-      }, 30000) // A cada 30 segundos
+      }, 45000) // A cada 45 segundos (menos que o timeout de 60s)
     }
 
     startHeartbeat()
@@ -160,11 +163,36 @@ export const useOnlineStatus = () => {
       }
     }
 
+    // Detectar quando a aba perde o foco por muito tempo
+    let blurTimeout = null
+    const handleBlur = () => {
+      console.log('👁️ Aba perdeu o foco')
+      // Após 2 minutos sem foco, marcar como away
+      blurTimeout = setTimeout(async () => {
+        if (profile?.status === 'online') {
+          console.log('⏰ Marcando como ausente por inatividade')
+          try {
+            await updateStatus('away')
+          } catch (error) {
+            console.error('❌ Erro ao marcar como ausente:', error)
+          }
+        }
+      }, 120000) // 2 minutos
+    }
+
+    const handleFocusAgain = async () => {
+      if (blurTimeout) {
+        clearTimeout(blurTimeout)
+        blurTimeout = null
+      }
+      await handleFocus()
+    }
+
     // Detectar conexão de rede
     const handleOnline = () => {
       console.log('🌐 Conexão de rede restaurada')
       setIsConnected(true)
-      handleFocus()
+      handleFocusAgain()
     }
 
     const handleOffline = () => {
@@ -172,7 +200,8 @@ export const useOnlineStatus = () => {
       setIsConnected(false)
     }
 
-    window.addEventListener('focus', handleFocus)
+    window.addEventListener('focus', handleFocusAgain)
+    window.addEventListener('blur', handleBlur)
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
 
@@ -185,10 +214,14 @@ export const useOnlineStatus = () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
       }
+      if (blurTimeout) {
+        clearTimeout(blurTimeout)
+      }
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current)
       }
-      window.removeEventListener('focus', handleFocus)
+      window.removeEventListener('focus', handleFocusAgain)
+      window.removeEventListener('blur', handleBlur)
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
       isInitialized.current = false
@@ -239,15 +272,34 @@ export const useOnlineStatus = () => {
   useEffect(() => {
     if (!user || !profile) return
 
-    const handleBeforeUnload = async () => {
-      // Marcar como offline ao sair
-      await updateStatus('offline')
+    const handleBeforeUnload = async (e) => {
+      // Marcar como offline ao sair (usar forma síncrona)
+      console.log('🚪 Usuário saindo, marcando como offline')
+      try {
+        // Usar fetch síncrono com keepalive para garantir que a requisição seja enviada
+        await supabase
+          .from('profiles')
+          .update({ status: 'offline', updated_at: new Date().toISOString() })
+          .eq('id', user.id)
+      } catch (error) {
+        console.error('❌ Erro ao marcar offline:', error)
+      }
+    }
+
+    const handleVisibilityChange = async () => {
+      if (document.hidden) {
+        console.log('👁️ Aba ficou oculta')
+      } else {
+        console.log('👁️ Aba ficou visível novamente')
+      }
     }
 
     window.addEventListener('beforeunload', handleBeforeUnload)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [user?.id])
 
