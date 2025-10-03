@@ -20,13 +20,16 @@ import {
   Circle, 
   Clock, 
   Minus,
-  UserPlus
+  UserPlus,
+  Wifi,
+  WifiOff
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { AddContact } from './AddContact'
 import { FriendRequests } from './FriendRequests'
 import { ChatWindow } from './ChatWindow'
 import { useOnlineStatus } from '../hooks/useOnlineStatus'
+import { useUnreadMessages } from '../hooks/useUnreadMessages'
 
 const statusConfig = {
   online: { color: 'bg-green-500', label: 'Online', icon: Circle },
@@ -40,7 +43,8 @@ export const ChatApp = () => {
   const [contacts, setContacts] = useState([])
   const [selectedContact, setSelectedContact] = useState(null)
   const [loading, setLoading] = useState(true)
-  useOnlineStatus()
+  const { isConnected } = useOnlineStatus()
+  const { getUnreadCount, markAsRead } = useUnreadMessages()
 
   useEffect(() => {
     if (profile) {
@@ -159,6 +163,12 @@ export const ChatApp = () => {
       .slice(0, 2) || '??'
   }
 
+  const handleContactClick = (contactData) => {
+    setSelectedContact(contactData)
+    // Marcar mensagens como lidas ao abrir o chat
+    markAsRead(contactData.id)
+  }
+
   const StatusIcon = statusConfig[profile?.status]?.icon || Circle
 
   if (loading) {
@@ -184,7 +194,14 @@ export const ChatApp = () => {
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold truncate">{profile?.display_name}</h3>
+                  <h3 className="font-semibold truncate flex items-center gap-2">
+                    {profile?.display_name}
+                    {isConnected ? (
+                      <Wifi className="h-3 w-3 text-green-500" title="Conectado" />
+                    ) : (
+                      <WifiOff className="h-3 w-3 text-red-500 animate-pulse" title="Desconectado" />
+                    )}
+                  </h3>
                   <div className="flex items-center gap-1">
                     <StatusIcon className={`h-3 w-3 ${statusConfig[profile?.status]?.color}`} />
                     <span className="text-sm text-muted-foreground">
@@ -246,14 +263,16 @@ export const ChatApp = () => {
                 contacts.map((contact) => {
                   const contactData = contact.contact
                   const ContactStatusIcon = statusConfig[contactData.status]?.icon || Circle
+                  const unreadCount = getUnreadCount(contactData.id)
+                  const hasUnread = unreadCount > 0
                   
                   return (
                     <div
                       key={contact.id}
-                      className={`contact-item flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-100 ${
+                      className={`contact-item flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all hover:bg-gray-100 ${
                         selectedContact?.id === contactData.id ? 'bg-blue-100 msn-glow' : ''
-                      }`}
-                      onClick={() => setSelectedContact(contactData)}
+                      } ${hasUnread && selectedContact?.id !== contactData.id ? 'bg-yellow-50 border-l-4 border-yellow-500 animate-pulse' : ''}`}
+                      onClick={() => handleContactClick(contactData)}
                     >
                       <div className="relative">
                         <Avatar className="h-10 w-10">
@@ -265,11 +284,22 @@ export const ChatApp = () => {
                         <ContactStatusIcon 
                           className={`absolute -bottom-1 -right-1 h-4 w-4 ${statusConfig[contactData.status]?.color} border-2 border-white rounded-full`} 
                         />
+                        {hasUnread && selectedContact?.id !== contactData.id && (
+                          <div className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 rounded-full flex items-center justify-center border-2 border-white">
+                            <span className="text-xs text-white font-bold">{unreadCount > 9 ? '9+' : unreadCount}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h5 className="font-medium truncate">{contactData.display_name}</h5>
-                        <p className="text-sm text-muted-foreground truncate">
-                          {contactData.status_message || statusConfig[contactData.status]?.label}
+                        <h5 className={`font-medium truncate ${hasUnread && selectedContact?.id !== contactData.id ? 'font-bold text-blue-600' : ''}`}>
+                          {contactData.display_name}
+                        </h5>
+                        <p className={`text-sm truncate ${hasUnread && selectedContact?.id !== contactData.id ? 'text-blue-600 font-medium' : 'text-muted-foreground'}`}>
+                          {hasUnread && selectedContact?.id !== contactData.id ? (
+                            <>💬 {unreadCount} nova{unreadCount > 1 ? 's' : ''} mensagem{unreadCount > 1 ? 'ns' : ''}</>
+                          ) : (
+                            contactData.status_message || statusConfig[contactData.status]?.label
+                          )}
                         </p>
                       </div>
                     </div>

@@ -5,7 +5,10 @@ import { supabase } from '../lib/supabase'
 export const useOnlineStatus = () => {
   const { user, profile, updateStatus } = useAuth()
   const [onlineUsers, setOnlineUsers] = useState([])
+  const [isConnected, setIsConnected] = useState(true)
   const isInitialized = useRef(false)
+  const heartbeatRef = useRef(null)
+  const reconnectTimeoutRef = useRef(null)
 
   useEffect(() => {
     if (!user || !profile) return
@@ -16,31 +19,112 @@ export const useOnlineStatus = () => {
 
     console.log('🟢 Inicializando status online para:', profile.display_name)
 
-    // Marcar como online quando conectar (apenas uma vez)
+    // Marcar como online quando conectar
     const setInitialStatus = async () => {
-      await updateStatus('online')
-      fetchOnlineUsers()
+      try {
+        await updateStatus('online')
+        setIsConnected(true)
+        fetchOnlineUsers()
+      } catch (error) {
+        console.error('❌ Erro ao definir status inicial:', error)
+        setIsConnected(false)
+        scheduleReconnect()
+      }
     }
     setInitialStatus()
 
-    // Configurar heartbeat menos frequente
-    const heartbeatInterval = setInterval(async () => {
-      if (profile?.status === 'online') {
-        console.log('💓 Heartbeat: mantendo status online')
-        await updateStatus('online')
+    // Configurar heartbeat mais frequente para manter conexão
+    const startHeartbeat = () => {
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current)
       }
-    }, 60000) // A cada 60 segundos
+      
+      heartbeatRef.current = setInterval(async () => {
+        if (profile?.status === 'online' || profile?.status === 'away' || profile?.status === 'busy') {
+          console.log('💓 Heartbeat: mantendo conexão ativa')
+          try {
+            // Atualizar timestamp sem mudar status
+            const { error } = await supabase
+              .from('profiles')
+              .update({ updated_at: new Date().toISOString() })
+              .eq('id', user.id)
+            
+            if (error) throw error
+            setIsConnected(true)
+          } catch (error) {
+            console.error('❌ Heartbeat falhou:', error)
+            setIsConnected(false)
+            scheduleReconnect()
+          }
+        }
+      }, 30000) // A cada 30 segundos
+    }
 
-    // NÃO escutar mudanças em tempo real para evitar loop
-    // Os usuários verão atualizações ao recarregar ou quando fizerem ações
+    startHeartbeat()
+
+    // Detectar quando a aba volta ao foco
+    const handleFocus = async () => {
+      console.log('👁️ Aba voltou ao foco, reconectando...')
+      try {
+        await updateStatus(profile?.status || 'online')
+        setIsConnected(true)
+        fetchOnlineUsers()
+      } catch (error) {
+        console.error('❌ Erro ao reconectar:', error)
+        scheduleReconnect()
+      }
+    }
+
+    // Detectar conexão de rede
+    const handleOnline = () => {
+      console.log('🌐 Conexão de rede restaurada')
+      setIsConnected(true)
+      handleFocus()
+    }
+
+    const handleOffline = () => {
+      console.log('📡 Conexão de rede perdida')
+      setIsConnected(false)
+    }
+
+    window.addEventListener('focus', handleFocus)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
 
     // Cleanup
     return () => {
       console.log('🔴 Limpando status online')
-      clearInterval(heartbeatInterval)
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current)
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+      }
+      window.removeEventListener('focus', handleFocus)
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
       isInitialized.current = false
     }
-  }, [user?.id]) // MUDANÇA: só depende do user.id, não do profile inteiro
+  }, [user?.id])
+
+  const scheduleReconnect = () => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+    }
+    
+    console.log('🔄 Agendando reconexão em 5 segundos...')
+    reconnectTimeoutRef.current = setTimeout(async () => {
+      console.log('🔄 Tentando reconectar...')
+      try {
+        await updateStatus(profile?.status || 'online')
+        setIsConnected(true)
+        console.log('✅ Reconectado com sucesso!')
+      } catch (error) {
+        console.error('❌ Falha ao reconectar:', error)
+        scheduleReconnect() // Tentar novamente
+      }
+    }, 5000)
+  }
 
   const fetchOnlineUsers = async () => {
     try {
@@ -72,8 +156,6 @@ export const useOnlineStatus = () => {
       await updateStatus('offline')
     }
 
-    // Remover handleVisibilityChange para evitar loops
-
     window.addEventListener('beforeunload', handleBeforeUnload)
 
     return () => {
@@ -83,6 +165,7 @@ export const useOnlineStatus = () => {
 
   return {
     onlineUsers,
-    fetchOnlineUsers
+    fetchOnlineUsers,
+    isConnected
   }
 }

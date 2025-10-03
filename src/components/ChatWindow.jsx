@@ -58,64 +58,124 @@ export const ChatWindow = ({ contact }) => {
     }
 
     console.log('🔌 Configurando Realtime para conversa:', conversation.id)
+    
+    let channel = null
+    let reconnectAttempts = 0
+    const MAX_RECONNECT_ATTEMPTS = 5
+    let reconnectTimeout = null
 
-    // Configurar realtime para mensagens
-    const channel = supabase
-      .channel(`messages:${conversation.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversation.id}`
-        },
-        (payload) => {
-          console.log('📨 NOVA MENSAGEM RECEBIDA (Realtime):', payload)
-          const newMessage = payload.new
-          
-          console.log('👤 Sender:', newMessage.sender_id)
-          console.log('👤 Eu:', user.id)
-          console.log('📝 Conteúdo:', newMessage.content)
-          
-          // Se a mensagem é de "chamar atenção", fazer a tela tremer
-          if (newMessage.message_type === 'attention' && newMessage.sender_id !== user.id) {
-            console.log('⚡ Atenção recebida!')
-            triggerAttentionEffect()
-          } else if (newMessage.sender_id !== user.id) {
-            console.log('🔔 Mensagem de outro usuário, tocando som')
-            // Tocar som para mensagens normais de outros usuários
-            playMessageSound()
+    const setupChannel = () => {
+      // Remover canal anterior se existir
+      if (channel) {
+        supabase.removeChannel(channel)
+      }
+
+      // Configurar realtime para mensagens
+      channel = supabase
+        .channel(`messages:${conversation.id}`, {
+          config: {
+            broadcast: { self: false },
+            presence: { key: user.id }
           }
-          
-          // Adicionar mensagem à lista
-          console.log('➕ Adicionando mensagem à lista')
-          setMessages(prev => {
-            const updated = [...prev, {
-              ...newMessage,
-              sender: newMessage.sender_id === user.id ? profile : contact
-            }]
-            console.log('📋 Total de mensagens agora:', updated.length)
-            return updated
-          })
-        }
-      )
-      .subscribe((status) => {
-        console.log('🔌 Status da subscrição Realtime:', status)
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Realtime conectado e escutando mensagens!')
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Erro no canal Realtime')
-        } else if (status === 'TIMED_OUT') {
-          console.error('⏰ Timeout na conexão Realtime')
-        } else if (status === 'CLOSED') {
-          console.warn('🔒 Canal Realtime fechado')
-        }
-      })
+        })
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_id=eq.${conversation.id}`
+          },
+          (payload) => {
+            console.log('📨 NOVA MENSAGEM RECEBIDA (Realtime):', payload)
+            const newMessage = payload.new
+            
+            console.log('👤 Sender:', newMessage.sender_id)
+            console.log('👤 Eu:', user.id)
+            console.log('📝 Conteúdo:', newMessage.content)
+            
+            // Se a mensagem é de "chamar atenção", fazer a tela tremer
+            if (newMessage.message_type === 'attention' && newMessage.sender_id !== user.id) {
+              console.log('⚡ Atenção recebida!')
+              triggerAttentionEffect()
+            } else if (newMessage.sender_id !== user.id) {
+              console.log('🔔 Mensagem de outro usuário, tocando som')
+              // Tocar som para mensagens normais de outros usuários
+              playMessageSound()
+            }
+            
+            // Adicionar mensagem à lista
+            console.log('➕ Adicionando mensagem à lista')
+            setMessages(prev => {
+              const updated = [...prev, {
+                ...newMessage,
+                sender: newMessage.sender_id === user.id ? profile : contact
+              }]
+              console.log('📋 Total de mensagens agora:', updated.length)
+              return updated
+            })
+          }
+        )
+        .subscribe((status) => {
+          console.log('🔌 Status da subscrição Realtime:', status)
+          if (status === 'SUBSCRIBED') {
+            console.log('✅ Realtime conectado e escutando mensagens!')
+            reconnectAttempts = 0 // Reset counter on successful connection
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('❌ Erro no canal Realtime')
+            attemptReconnect()
+          } else if (status === 'TIMED_OUT') {
+            console.error('⏰ Timeout na conexão Realtime')
+            attemptReconnect()
+          } else if (status === 'CLOSED') {
+            console.warn('🔒 Canal Realtime fechado')
+            attemptReconnect()
+          }
+        })
+    }
+
+    const attemptReconnect = () => {
+      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.error('❌ Máximo de tentativas de reconexão atingido')
+        toast.error('Erro ao manter conexão. Tente recarregar a página.')
+        return
+      }
+
+      reconnectAttempts++
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000) // Exponential backoff, max 30s
+      
+      console.log(`🔄 Tentativa de reconexão ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} em ${delay}ms`)
+      
+      reconnectTimeout = setTimeout(() => {
+        console.log('🔄 Reconectando Realtime...')
+        setupChannel()
+      }, delay)
+    }
+
+    // Configurar keep-alive ping a cada 25 segundos
+    const keepAliveInterval = setInterval(() => {
+      if (channel) {
+        console.log('🏓 Ping keep-alive')
+        // Enviar um ping para manter o canal ativo
+        channel.send({
+          type: 'broadcast',
+          event: 'ping',
+          payload: { timestamp: Date.now() }
+        })
+      }
+    }, 25000)
+
+    setupChannel()
 
     return () => {
       console.log('🔌 Desconectando Realtime para conversa:', conversation.id)
-      supabase.removeChannel(channel)
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout)
+      }
+      clearInterval(keepAliveInterval)
+      if (channel) {
+        supabase.removeChannel(channel)
+      }
     }
   }, [conversation, user, profile, contact])
 
