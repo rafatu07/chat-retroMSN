@@ -59,25 +59,33 @@ export const ChatWindow = ({ contact }) => {
     let channel = null
     let reconnectAttempts = 0
     let isUnmounting = false
-    const MAX_RECONNECT_ATTEMPTS = 3
+    let lastMessageTime = Date.now()
+    const MAX_RECONNECT_ATTEMPTS = 5
     let reconnectTimeout = null
+    let heartbeatInterval = null
 
     const setupChannel = () => {
-      // Não configurar se estamos desmontando
       if (isUnmounting) return
 
-      // Limpar canal anterior sem disparar reconexão
+      // Limpar canal anterior
       if (channel) {
         try {
           supabase.removeChannel(channel)
         } catch (e) {
-          // Ignorar erros ao remover canal
+          console.warn('Erro ao remover canal:', e)
         }
       }
 
+      console.log('📡 Criando canal Realtime...')
+
       // Configurar realtime para mensagens
       channel = supabase
-        .channel(`messages:${conversation.id}`)
+        .channel(`messages:${conversation.id}`, {
+          config: {
+            broadcast: { self: false },
+            presence: { key: user.id }
+          }
+        })
         .on(
           'postgres_changes',
           {
@@ -89,8 +97,9 @@ export const ChatWindow = ({ contact }) => {
           (payload) => {
             if (isUnmounting) return
             
+            lastMessageTime = Date.now()
             const newMessage = payload.new
-            console.log('📨 Nova mensagem recebida')
+            console.log('📨 MENSAGEM RECEBIDA VIA REALTIME:', newMessage.content)
             
             // Se a mensagem é de "chamar atenção", fazer a tela tremer
             if (newMessage.message_type === 'attention' && newMessage.sender_id !== user.id) {
@@ -109,23 +118,80 @@ export const ChatWindow = ({ contact }) => {
         .subscribe((status) => {
           if (isUnmounting) return
 
+          console.log('🔌 Status Realtime:', status)
+
           if (status === 'SUBSCRIBED') {
-            console.log('✅ Realtime conectado')
+            console.log('✅ Realtime CONECTADO e OUVINDO')
             reconnectAttempts = 0
-          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.error('❌ Erro na conexão Realtime')
+            startHeartbeat()
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('❌ ERRO no canal Realtime')
+            stopHeartbeat()
+            attemptReconnect()
+          } else if (status === 'TIMED_OUT') {
+            console.error('⏰ TIMEOUT na conexão Realtime')
+            stopHeartbeat()
+            attemptReconnect()
+          } else if (status === 'CLOSED') {
+            console.warn('🔒 Canal Realtime FECHADO')
+            stopHeartbeat()
+            // Reconectar após CLOSED também (pode ser inatividade)
+            if (!isUnmounting) {
+              attemptReconnect()
+            }
+          }
+        })
+    }
+
+    const startHeartbeat = () => {
+      stopHeartbeat()
+      
+      // Ping a cada 30 segundos para manter conexão viva
+      heartbeatInterval = setInterval(() => {
+        if (channel && !isUnmounting) {
+          try {
+            console.log('💓 Heartbeat')
+            channel.send({
+              type: 'broadcast',
+              event: 'heartbeat',
+              payload: { timestamp: Date.now() }
+            })
+            
+            // Verificar se não recebemos mensagens há muito tempo (possível desconexão silenciosa)
+            const timeSinceLastMessage = Date.now() - lastMessageTime
+            if (timeSinceLastMessage > 120000) { // 2 minutos
+              console.warn('⚠️ Sem atividade há muito tempo, reconectando...')
+              attemptReconnect()
+            }
+          } catch (e) {
+            console.error('❌ Erro no heartbeat:', e)
             attemptReconnect()
           }
-          // NÃO reconectar em CLOSED - pode ser intencional
-        })
+        }
+      }, 30000)
+    }
+
+    const stopHeartbeat = () => {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval)
+        heartbeatInterval = null
+      }
     }
 
     const attemptReconnect = () => {
       if (isUnmounting || !conversation) return
 
+      // Limpar tentativa anterior
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout)
+      }
+
       if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        console.error('❌ Máximo de tentativas de reconexão atingido')
-        toast.error('Erro de conexão. Recarregue a página.')
+        console.error('❌ Máximo de reconexões atingido')
+        toast.error('Conexão perdida. Recarregue a página.', {
+          duration: 5000,
+          icon: '⚠️'
+        })
         return
       }
 
@@ -134,20 +200,33 @@ export const ChatWindow = ({ contact }) => {
       
       console.log(`🔄 Reconexão ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} em ${delay}ms`)
       
-      if (reconnectTimeout) clearTimeout(reconnectTimeout)
-      
       reconnectTimeout = setTimeout(() => {
         if (!isUnmounting && conversation) {
+          console.log('🔄 Tentando reconectar...')
           setupChannel()
         }
       }, delay)
     }
+
+    // Listener para quando a aba volta a ficar visível
+    const handleVisibilityChange = () => {
+      if (!document.hidden && !isUnmounting && conversation) {
+        console.log('👁️ Aba ficou visível, reconectando...')
+        setupChannel()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     setupChannel()
 
     return () => {
       console.log('🔌 Limpando Realtime')
       isUnmounting = true
+      
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      
+      stopHeartbeat()
       
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout)

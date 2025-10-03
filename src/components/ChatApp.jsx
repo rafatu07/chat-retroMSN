@@ -43,13 +43,18 @@ export const ChatApp = () => {
   const [contacts, setContacts] = useState([])
   const [selectedContact, setSelectedContact] = useState(null)
   const [loading, setLoading] = useState(true)
-  const { isConnected } = useOnlineStatus()
+  const { isConnected, profileStatuses } = useOnlineStatus()
   const { getUnreadCount, markAsRead, unreadCounts } = useUnreadMessages()
   
   // Log para debug - ver quando unreadCounts muda
   useEffect(() => {
     console.log('🔔 CHATAPP: unreadCounts mudou!', unreadCounts)
   }, [unreadCounts])
+  
+  // Log para debug - ver quando profileStatuses muda
+  useEffect(() => {
+    console.log('👥 CHATAPP: profileStatuses mudou!', profileStatuses)
+  }, [profileStatuses])
 
   useEffect(() => {
     if (profile) {
@@ -267,7 +272,9 @@ export const ChatApp = () => {
               ) : (
                 contacts.map((contact) => {
                   const contactData = contact.contact
-                  const ContactStatusIcon = statusConfig[contactData.status]?.icon || Circle
+                  // Usar status do Realtime se disponível, senão usar do banco
+                  const currentStatus = profileStatuses[contactData.id]?.status || contactData.status
+                  const ContactStatusIcon = statusConfig[currentStatus]?.icon || Circle
                   const unreadCount = getUnreadCount(contactData.id)
                   const hasUnread = unreadCount > 0
                   
@@ -287,7 +294,7 @@ export const ChatApp = () => {
                           </AvatarFallback>
                         </Avatar>
                         <ContactStatusIcon 
-                          className={`absolute -bottom-1 -right-1 h-4 w-4 ${statusConfig[contactData.status]?.color} border-2 border-white rounded-full`} 
+                          className={`absolute -bottom-1 -right-1 h-4 w-4 ${statusConfig[currentStatus]?.color} border-2 border-white rounded-full`} 
                         />
                         {hasUnread && selectedContact?.id !== contactData.id && (
                           <div className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 rounded-full flex items-center justify-center border-2 border-white">
@@ -303,7 +310,7 @@ export const ChatApp = () => {
                           {hasUnread && selectedContact?.id !== contactData.id ? (
                             <>💬 {unreadCount} nova{unreadCount > 1 ? 's' : ''} mensagem{unreadCount > 1 ? 'ns' : ''}</>
                           ) : (
-                            contactData.status_message || statusConfig[contactData.status]?.label
+                            contactData.status_message || statusConfig[currentStatus]?.label
                           )}
                         </p>
                       </div>

@@ -6,9 +6,11 @@ export const useOnlineStatus = () => {
   const { user, profile, updateStatus } = useAuth()
   const [onlineUsers, setOnlineUsers] = useState([])
   const [isConnected, setIsConnected] = useState(true)
+  const [profileStatuses, setProfileStatuses] = useState({})
   const isInitialized = useRef(false)
   const heartbeatRef = useRef(null)
   const reconnectTimeoutRef = useRef(null)
+  const channelRef = useRef(null)
 
   useEffect(() => {
     if (!user || !profile) return
@@ -62,6 +64,66 @@ export const useOnlineStatus = () => {
 
     startHeartbeat()
 
+    // Configurar Realtime para escutar mudanças de status
+    const setupRealtimeListener = () => {
+      console.log('📡 Configurando listener Realtime para status')
+      
+      channelRef.current = supabase
+        .channel('profile-status-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'profiles'
+          },
+          (payload) => {
+            console.log('🔄 Mudança de status detectada:', payload.new)
+            const updatedProfile = payload.new
+            
+            // Atualizar estado local de status
+            setProfileStatuses(prev => ({
+              ...prev,
+              [updatedProfile.id]: {
+                status: updatedProfile.status,
+                display_name: updatedProfile.display_name,
+                avatar_url: updatedProfile.avatar_url,
+                updated_at: updatedProfile.updated_at
+              }
+            }))
+            
+            // Se mudou para offline, remover dos onlineUsers
+            if (updatedProfile.status === 'offline') {
+              setOnlineUsers(prev => prev.filter(u => u.id !== updatedProfile.id))
+            } else {
+              // Adicionar ou atualizar nos onlineUsers
+              setOnlineUsers(prev => {
+                const exists = prev.find(u => u.id === updatedProfile.id)
+                if (exists) {
+                  return prev.map(u => 
+                    u.id === updatedProfile.id 
+                      ? { ...u, status: updatedProfile.status }
+                      : u
+                  )
+                } else {
+                  return [...prev, {
+                    id: updatedProfile.id,
+                    display_name: updatedProfile.display_name,
+                    avatar_url: updatedProfile.avatar_url,
+                    status: updatedProfile.status
+                  }]
+                }
+              })
+            }
+          }
+        )
+        .subscribe((status) => {
+          console.log('📡 Status Realtime (profiles):', status)
+        })
+    }
+
+    setupRealtimeListener()
+
     // Detectar quando a aba volta ao foco
     const handleFocus = async () => {
       console.log('👁️ Aba voltou ao foco, reconectando...')
@@ -99,6 +161,9 @@ export const useOnlineStatus = () => {
       }
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
+      }
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current)
       }
       window.removeEventListener('focus', handleFocus)
       window.removeEventListener('online', handleOnline)
@@ -166,6 +231,7 @@ export const useOnlineStatus = () => {
   return {
     onlineUsers,
     fetchOnlineUsers,
-    isConnected
+    isConnected,
+    profileStatuses
   }
 }
