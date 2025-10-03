@@ -30,7 +30,20 @@ const statusConfig = {
   offline: { color: 'bg-gray-500', label: 'Offline', icon: Circle }
 }
 
-export const ChatWindow = ({ contact }) => {
+// Função para verificar se um usuário está realmente online
+const isUserReallyOnline = (status, updatedAt) => {
+  if (status === 'offline') return false
+  if (!updatedAt) return false
+  
+  const lastUpdate = new Date(updatedAt).getTime()
+  const now = Date.now()
+  const diffInSeconds = (now - lastUpdate) / 1000
+  
+  // Se passou mais de 60 segundos sem atualização, considerar offline
+  return diffInSeconds < 60
+}
+
+export const ChatWindow = ({ contact, profileStatuses }) => {
   const { user, profile } = useAuth()
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
@@ -443,7 +456,18 @@ export const ChatWindow = ({ contact }) => {
     }
   }
 
-  const StatusIcon = statusConfig[contact?.status]?.icon || Circle
+  // Verificar status real do contato
+  const realtimeStatus = profileStatuses?.[contact?.id]
+  const dbStatus = contact?.status
+  const updatedAt = realtimeStatus?.updated_at || contact?.updated_at
+  
+  // Aplicar verificação de atividade
+  let currentStatus = realtimeStatus?.status || dbStatus
+  if (!isUserReallyOnline(currentStatus, updatedAt)) {
+    currentStatus = 'offline'
+  }
+  
+  const StatusIcon = statusConfig[currentStatus]?.icon || Circle
 
   if (!contact) return null
 
@@ -462,9 +486,9 @@ export const ChatWindow = ({ contact }) => {
             <div>
               <h3 className="font-semibold">{contact.display_name}</h3>
               <div className="flex items-center gap-1">
-                <StatusIcon className={`h-3 w-3 ${statusConfig[contact.status]?.color}`} />
+                <StatusIcon className={`h-3 w-3 ${statusConfig[currentStatus]?.color}`} />
                 <span className="text-sm opacity-90">
-                  {contact.status_message || statusConfig[contact.status]?.label}
+                  {contact.status_message || statusConfig[currentStatus]?.label}
                 </span>
               </div>
             </div>

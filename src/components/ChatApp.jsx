@@ -304,7 +304,6 @@ export const ChatApp = () => {
                   let currentStatus = realtimeStatus?.status || dbStatus
                   if (!isUserReallyOnline(currentStatus, updatedAt)) {
                     currentStatus = 'offline'
-                    console.log(`⚠️ ${contactData.display_name} marcado como offline por inatividade`)
                   }
                   
                   const ContactStatusIcon = statusConfig[currentStatus]?.icon || Circle
@@ -360,6 +359,7 @@ export const ChatApp = () => {
           {selectedContact ? (
             <ChatWindow 
               contact={selectedContact} 
+              profileStatuses={profileStatuses}
               onClose={() => setSelectedContact(null)} 
             />
           ) : (
