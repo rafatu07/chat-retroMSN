@@ -213,10 +213,19 @@ export const ChatApp = () => {
                     )}
                   </h3>
                   <div className="flex items-center gap-1">
-                    <StatusIcon className={`h-3 w-3 ${statusConfig[profile?.status]?.color}`} />
-                    <span className="text-sm text-muted-foreground">
-                      {statusConfig[profile?.status]?.label}
-                    </span>
+                    {(() => {
+                      // Usar status do Realtime se disponível, senão usar do contexto
+                      const currentUserStatus = profileStatuses[user?.id]?.status || profile?.status
+                      const UserStatusIcon = statusConfig[currentUserStatus]?.icon || Circle
+                      return (
+                        <>
+                          <UserStatusIcon className={`h-3 w-3 ${statusConfig[currentUserStatus]?.color}`} />
+                          <span className="text-sm text-muted-foreground">
+                            {statusConfig[currentUserStatus]?.label}
+                          </span>
+                        </>
+                      )
+                    })()}
                   </div>
                 </div>
               </div>

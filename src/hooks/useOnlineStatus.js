@@ -26,6 +26,18 @@ export const useOnlineStatus = () => {
       try {
         await updateStatus('online')
         setIsConnected(true)
+        
+        // Adicionar próprio status ao profileStatuses
+        setProfileStatuses(prev => ({
+          ...prev,
+          [user.id]: {
+            status: 'online',
+            display_name: profile.display_name,
+            avatar_url: profile.avatar_url,
+            updated_at: new Date().toISOString()
+          }
+        }))
+        
         fetchOnlineUsers()
       } catch (error) {
         console.error('❌ Erro ao definir status inicial:', error)
@@ -81,16 +93,27 @@ export const useOnlineStatus = () => {
             console.log('🔄 Mudança de status detectada:', payload.new)
             const updatedProfile = payload.new
             
+            // Verificar se é o próprio usuário
+            if (updatedProfile.id === user.id) {
+              console.log('✅ Meu próprio status mudou para:', updatedProfile.status)
+            } else {
+              console.log('👤 Status de outro usuário mudou:', updatedProfile.display_name, '→', updatedProfile.status)
+            }
+            
             // Atualizar estado local de status
-            setProfileStatuses(prev => ({
-              ...prev,
-              [updatedProfile.id]: {
-                status: updatedProfile.status,
-                display_name: updatedProfile.display_name,
-                avatar_url: updatedProfile.avatar_url,
-                updated_at: updatedProfile.updated_at
+            setProfileStatuses(prev => {
+              const newState = {
+                ...prev,
+                [updatedProfile.id]: {
+                  status: updatedProfile.status,
+                  display_name: updatedProfile.display_name,
+                  avatar_url: updatedProfile.avatar_url,
+                  updated_at: updatedProfile.updated_at
+                }
               }
-            }))
+              console.log('📊 profileStatuses atualizado:', newState)
+              return newState
+            })
             
             // Se mudou para offline, remover dos onlineUsers
             if (updatedProfile.status === 'offline') {
